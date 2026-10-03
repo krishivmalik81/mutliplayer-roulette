@@ -1,0 +1,601 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Royale Roulette</title>
+  <meta name="description" content="Real-time multiplayer European roulette table." />
+  <meta name="theme-color" content="#070b14" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%23d4af37'/%3E%3Ccircle cx='32' cy='32' r='22' fill='%230b4a2e'/%3E%3Ccircle cx='32' cy='32' r='7' fill='%23d4af37'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --ink: #070b14;
+      --ink-2: #0c1220;
+      --panel: rgba(13, 19, 33, 0.9);
+      --panel-solid: #0f1626;
+      --line: rgba(212, 175, 55, 0.28);
+      --gold: #d4af37;
+      --gold-hi: #f3d98a;
+      --gold-lo: #8f6f1f;
+      --text: #efe9d8;
+      --muted: #97a0b3;
+      --felt: #0b4a2e;
+      --red: #c9252f;
+      --black: #16161a;
+      --green: #0e7a43;
+      --win: #4ade80;
+      --lose: #f87171;
+      --radius: 14px;
+      --shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+      --font-display: 'Cinzel', 'Trajan Pro', Georgia, serif;
+      --font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      background:
+        radial-gradient(1200px 700px at 50% 40%, #13213a 0%, transparent 70%),
+        radial-gradient(900px 500px at 20% 110%, #0d2a22 0%, transparent 60%),
+        var(--ink);
+      color: var(--text);
+      font-family: var(--font-ui);
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+    button { font: inherit; color: inherit; }
+    [hidden] { display: none !important; }
+
+    #app { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
+
+    /* ------------------------------ top bar ------------------------------ */
+    .topbar {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 18px;
+      background: linear-gradient(180deg, rgba(10, 15, 27, 0.95), rgba(10, 15, 27, 0.75));
+      border-bottom: 1px solid var(--line);
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+      position: relative;
+      z-index: 5;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .brand svg { width: 36px; height: 36px; flex: none; filter: drop-shadow(0 2px 6px rgba(212, 175, 55, 0.35)); }
+    .brand-title {
+      display: block;
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 19px;
+      letter-spacing: 0.12em;
+      background: linear-gradient(180deg, var(--gold-hi), var(--gold) 55%, var(--gold-lo));
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      white-space: nowrap;
+    }
+    .brand-sub { display: block; font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--muted); }
+
+    .status { display: flex; align-items: center; gap: 12px; }
+    .phase-pill {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 7px 14px; border-radius: 999px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--line);
+      font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+      white-space: nowrap;
+      transition: border-color 0.3s, background 0.3s;
+    }
+    .phase-pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); box-shadow: 0 0 0 0 currentColor; }
+    .phase-pill[data-phase="BETTING_OPEN"] { border-color: rgba(74, 222, 128, 0.45); }
+    .phase-pill[data-phase="BETTING_OPEN"] .dot { background: var(--win); animation: pulse 1.4s infinite; color: rgba(74, 222, 128, 0.6); }
+    .phase-pill[data-phase="SPINNING"] .dot { background: var(--gold); animation: pulse 0.8s infinite; color: rgba(212, 175, 55, 0.6); }
+    .phase-pill[data-phase="PAYOUT_SETTLEMENT"] .dot, .phase-pill[data-phase="ROUND_CLEANUP"] .dot { background: var(--gold-hi); }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 currentColor; }
+      70% { box-shadow: 0 0 0 7px transparent; }
+      100% { box-shadow: 0 0 0 0 transparent; }
+    }
+    .timer { position: relative; width: 40px; height: 40px; }
+    .timer svg { width: 40px; height: 40px; transform: rotate(-90deg); }
+    .timer circle { fill: none; stroke-width: 3; }
+    .timer .track { stroke: rgba(255, 255, 255, 0.08); }
+    .timer .bar { stroke: var(--gold); stroke-linecap: round; transition: stroke 0.3s; }
+    .timer.urgent .bar { stroke: var(--lose); }
+    .timer span {
+      position: absolute; inset: 0; display: grid; place-items: center;
+      font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
+    }
+    .seated { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); font-weight: 600; }
+    .seated svg { width: 16px; height: 16px; }
+
+    .top-actions { display: flex; justify-content: flex-end; align-items: center; gap: 10px; }
+    .conn { width: 9px; height: 9px; border-radius: 50%; background: var(--lose); box-shadow: 0 0 8px var(--lose); transition: background 0.3s, box-shadow 0.3s; }
+    .conn.online { background: var(--win); box-shadow: 0 0 8px var(--win); }
+    .icon-btn {
+      width: 38px; height: 38px; border-radius: 50%;
+      display: grid; place-items: center;
+      background: radial-gradient(circle at 35% 30%, #1d2740, #0c1220);
+      border: 1px solid var(--line);
+      cursor: pointer;
+      transition: transform 0.15s, border-color 0.2s, box-shadow 0.2s;
+    }
+    .icon-btn:hover { transform: translateY(-1px); border-color: var(--gold); box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.15); }
+    .icon-btn:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
+    .icon-btn svg { width: 18px; height: 18px; }
+    .icon-btn.info {
+      font-family: Georgia, 'Times New Roman', serif; font-style: italic; font-weight: 700; font-size: 19px;
+      color: var(--gold-hi);
+      border: 1.5px solid var(--gold);
+      box-shadow: 0 0 14px rgba(212, 175, 55, 0.25);
+    }
+
+    /* ------------------------------- stage ------------------------------- */
+    #stage { flex: 1; position: relative; display: grid; place-items: center; min-height: 0; overflow: hidden; }
+    #table { display: block; touch-action: manipulation; }
+    .tooltip {
+      position: absolute; z-index: 6; pointer-events: none;
+      min-width: 190px; max-width: 280px;
+      padding: 10px 12px;
+      background: rgba(8, 12, 22, 0.96);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      box-shadow: var(--shadow);
+      font-size: 12.5px; line-height: 1.45;
+    }
+    .tooltip h4 { margin: 0 0 2px; font-family: var(--font-display); font-size: 14px; color: var(--gold-hi); letter-spacing: 0.04em; }
+    .tooltip .pays { color: var(--muted); font-size: 11.5px; margin-bottom: 6px; }
+    .tooltip .row { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+    .tooltip .row .amt { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .tooltip .mine { margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255, 255, 255, 0.08); color: var(--win); font-weight: 600; }
+    .tooltip .hint { margin-top: 6px; color: var(--muted); font-size: 11px; }
+
+    .avatar {
+      width: 22px; height: 22px; border-radius: 50%;
+      display: inline-grid; place-items: center; flex: none;
+      box-shadow: inset 0 -2px 4px rgba(0, 0, 0, 0.35), 0 0 0 1.5px rgba(255, 255, 255, 0.25);
+    }
+    .avatar svg { width: 62%; height: 62%; }
+    .avatar.lg { width: 34px; height: 34px; }
+
+    /* ------------------------------ controls ----------------------------- */
+    .controls {
+      display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+      padding: 10px 18px 12px;
+      background: linear-gradient(0deg, rgba(10, 15, 27, 0.98), rgba(10, 15, 27, 0.8));
+      border-top: 1px solid var(--line);
+      box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.35);
+      position: relative; z-index: 5;
+    }
+    .rack { display: flex; gap: 10px; align-items: center; }
+    .chip {
+      --c: #ccc; --e: #fff; --t: #fff;
+      position: relative;
+      width: 52px; height: 52px; border-radius: 50%;
+      border: none; cursor: pointer;
+      background:
+        radial-gradient(circle at 50% 50%, var(--c) 0 50%, transparent 51%),
+        repeating-conic-gradient(var(--e) 0 15deg, var(--c) 15deg 45deg);
+      box-shadow: inset 0 0 0 3px rgba(0, 0, 0, 0.2), 0 4px 0 rgba(0, 0, 0, 0.45), 0 6px 14px rgba(0, 0, 0, 0.4);
+      color: var(--t);
+      font-weight: 800; font-size: 14px; letter-spacing: -0.02em;
+      transition: transform 0.18s cubic-bezier(.2, .9, .3, 1.4), box-shadow 0.2s, opacity 0.2s, filter 0.2s;
+    }
+    .chip::before {
+      content: ''; position: absolute; inset: 9px; border-radius: 50%;
+      border: 1.5px dashed rgba(255, 255, 255, 0.55);
+    }
+    .chip span { position: relative; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }
+    .chip:hover:not(:disabled) { transform: translateY(-3px); }
+    .chip.selected {
+      transform: translateY(-7px) scale(1.06);
+      box-shadow: inset 0 0 0 3px rgba(0, 0, 0, 0.2), 0 0 0 3px var(--gold-hi), 0 0 22px rgba(243, 217, 138, 0.6), 0 10px 18px rgba(0, 0, 0, 0.5);
+    }
+    .chip:disabled { opacity: 0.35; cursor: not-allowed; filter: grayscale(0.6); }
+    .chip:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 3px; }
+    .chip[data-value="1"] { --c: #f1ede2; --e: #2453b8; --t: #1a1a1a; }
+    .chip[data-value="1"] span { text-shadow: none; }
+    .chip[data-value="5"] { --c: #c8202f; --e: #ffffff; }
+    .chip[data-value="10"] { --c: #1f5fd1; --e: #ffffff; }
+    .chip[data-value="25"] { --c: #138a4c; --e: #ffffff; }
+    .chip[data-value="100"] { --c: #17171b; --e: #d6b35a; --t: #f3d98a; }
+
+    .ledger { display: flex; align-items: center; gap: 18px; flex: 1; justify-content: center; min-width: 0; flex-wrap: wrap; }
+    .stat { display: flex; flex-direction: column; min-width: 78px; }
+    .stat label, .outcomes label { font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+    .stat strong { font-size: 19px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .stat strong.gold { color: var(--gold-hi); }
+    .outcomes { display: flex; flex-direction: column; gap: 4px; }
+    .strip { display: grid; grid-template-columns: repeat(37, 9px); gap: 2px; height: 26px; align-items: end; }
+    .strip i {
+      display: block; height: 100%; border-radius: 2px;
+      background: rgba(255, 255, 255, 0.06);
+      border-top: 2px solid var(--k, #444);
+      position: relative; overflow: hidden;
+    }
+    .strip i::after {
+      content: ''; position: absolute; left: 0; right: 0; bottom: 0;
+      height: var(--h, 0%);
+      background: linear-gradient(0deg, var(--gold-lo), var(--gold-hi));
+      transition: height 0.25s ease;
+    }
+    .strip i.hit { box-shadow: 0 0 0 1.5px var(--win); }
+
+    .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+    .btn {
+      padding: 10px 16px; border-radius: 10px;
+      font-weight: 700; font-size: 13.5px; letter-spacing: 0.04em;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.04);
+      cursor: pointer;
+      transition: transform 0.12s, background 0.2s, border-color 0.2s, box-shadow 0.2s, opacity 0.2s;
+      white-space: nowrap;
+    }
+    .btn:hover:not(:disabled) { transform: translateY(-1px); border-color: var(--gold); background: rgba(212, 175, 55, 0.08); }
+    .btn:active:not(:disabled) { transform: translateY(1px); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
+    .btn kbd { font-family: var(--font-ui); font-size: 10px; opacity: 0.55; margin-left: 6px; }
+    .btn.gold {
+      color: #1b1406;
+      background: linear-gradient(180deg, var(--gold-hi), var(--gold) 60%, #a8841f);
+      border-color: #f7e3a3;
+      box-shadow: 0 4px 14px rgba(212, 175, 55, 0.3);
+    }
+    .btn.gold:hover:not(:disabled) { background: linear-gradient(180deg, #fbe7a6, #dcb945 60%, #b08a22); }
+    .btn.locked { color: var(--text); background: linear-gradient(180deg, #1f6b45, #135233); border-color: #3fbf7f; box-shadow: 0 0 16px rgba(74, 222, 128, 0.3); }
+    .btn.danger { border-color: rgba(248, 113, 113, 0.5); color: #fecaca; }
+    .btn.danger:hover:not(:disabled) { background: rgba(248, 113, 113, 0.12); border-color: var(--lose); }
+    .btn.pulse:not(:disabled) { animation: glow 1.8s ease-in-out infinite; }
+    @keyframes glow {
+      0%, 100% { box-shadow: 0 4px 14px rgba(212, 175, 55, 0.3); }
+      50% { box-shadow: 0 0 0 4px rgba(243, 217, 138, 0.25), 0 0 28px rgba(243, 217, 138, 0.55); }
+    }
+
+    /* ------------------------------- modals ------------------------------ */
+    .modal {
+      position: fixed; inset: 0; z-index: 20;
+      display: grid; place-items: center;
+      padding: 16px;
+      background: rgba(3, 6, 12, 0.72);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      animation: fadeIn 0.25s ease;
+    }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes rise { from { opacity: 0; transform: translateY(14px) scale(0.98); } to { opacity: 1; transform: none; } }
+    .card {
+      position: relative;
+      width: min(560px, 100%);
+      max-height: calc(100dvh - 32px);
+      overflow: auto;
+      padding: 28px;
+      background: linear-gradient(180deg, #121a2c, #0b111e);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      animation: rise 0.3s cubic-bezier(.2, .8, .2, 1);
+    }
+    .card::before {
+      content: ''; position: absolute; inset: 6px; border-radius: 13px; pointer-events: none;
+      border: 1px solid rgba(212, 175, 55, 0.12);
+    }
+    .card h2 {
+      margin: 0 0 6px;
+      font-family: var(--font-display); font-weight: 800; letter-spacing: 0.08em;
+      font-size: 24px; color: var(--gold-hi);
+    }
+    .card h3 { margin: 22px 0 8px; font-family: var(--font-display); font-size: 15px; letter-spacing: 0.08em; color: var(--gold); }
+    .card p, .card li { color: #cfd5e2; line-height: 1.6; font-size: 14px; }
+    .card ul, .card ol { padding-left: 20px; margin: 6px 0; }
+    .close-btn { position: absolute; top: 14px; right: 14px; }
+
+    .join-card { text-align: center; width: min(440px, 100%); }
+    .join-card .crest { width: 72px; height: 72px; margin: 0 auto 10px; display: block; filter: drop-shadow(0 4px 14px rgba(212, 175, 55, 0.35)); }
+    .join-card p { margin: 4px 0 18px; color: var(--muted); }
+    .field { display: flex; gap: 10px; }
+    .field input {
+      flex: 1; min-width: 0;
+      padding: 12px 14px; border-radius: 10px;
+      background: rgba(0, 0, 0, 0.35); color: var(--text);
+      border: 1px solid var(--line);
+      font: inherit; font-size: 15px;
+      outline: none; transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .field input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.18); }
+    .join-error { min-height: 20px; margin-top: 10px; color: var(--lose); font-size: 13px; }
+    .lobby-list { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+    .lobby-list .who {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 10px 4px 4px; border-radius: 999px;
+      background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 12.5px;
+    }
+    .lobby-meta { margin-top: 12px; font-size: 12px; color: var(--muted); letter-spacing: 0.04em; }
+
+    .rules-card { width: min(760px, 100%); }
+    .payout-table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 13.5px; }
+    .payout-table th, .payout-table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid rgba(255, 255, 255, 0.07); }
+    .payout-table th { color: var(--muted); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 600; }
+    .payout-table td:nth-child(2) { color: var(--gold-hi); font-weight: 700; font-variant-numeric: tabular-nums; }
+    .payout-table td:last-child { color: var(--muted); }
+    .keys { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 6px 18px; font-size: 13px; color: #cfd5e2; }
+    kbd.k {
+      display: inline-block; min-width: 22px; padding: 2px 6px; margin-right: 6px; text-align: center;
+      border-radius: 5px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.05);
+      font: 600 11.5px var(--font-ui); color: var(--gold-hi);
+    }
+
+    .summary-card { width: min(620px, 100%); text-align: center; }
+    .result-disc {
+      width: 96px; height: 96px; margin: 8px auto 6px; border-radius: 50%;
+      display: grid; place-items: center;
+      font-family: var(--font-display); font-weight: 800; font-size: 40px; color: #fff;
+      border: 4px solid var(--gold);
+      box-shadow: 0 0 0 6px rgba(212, 175, 55, 0.15), 0 0 40px rgba(212, 175, 55, 0.35), inset 0 -8px 18px rgba(0, 0, 0, 0.35);
+      animation: rise 0.45s cubic-bezier(.2, .9, .3, 1.3);
+    }
+    .result-disc.red { background: radial-gradient(circle at 40% 30%, #e0434d, #9c1520); }
+    .result-disc.black { background: radial-gradient(circle at 40% 30%, #3a3a42, #0c0c0f); }
+    .result-disc.green { background: radial-gradient(circle at 40% 30%, #1fa463, #0a5c33); }
+    .result-tags { font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); margin-bottom: 14px; }
+    .summary-table { width: 100%; border-collapse: collapse; font-size: 14px; text-align: left; }
+    .summary-table th { color: var(--muted); font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 600; padding: 6px 8px; }
+    .summary-table td { padding: 9px 8px; border-top: 1px solid rgba(255, 255, 255, 0.06); font-variant-numeric: tabular-nums; }
+    .summary-table td.name { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+    .summary-table tr.me td { background: rgba(212, 175, 55, 0.07); }
+    .summary-table .pos { color: var(--win); font-weight: 700; }
+    .summary-table .neg { color: var(--lose); font-weight: 700; }
+    .summary-table .zero { color: var(--muted); }
+    .countdown { margin-top: 16px; height: 4px; border-radius: 4px; background: rgba(255, 255, 255, 0.07); overflow: hidden; }
+    .countdown i { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, var(--gold-lo), var(--gold-hi)); transform-origin: left; }
+    .summary-foot { margin-top: 8px; font-size: 12px; color: var(--muted); }
+
+    /* ------------------------------- toasts ------------------------------ */
+    #toasts {
+      position: fixed; z-index: 30; top: 70px; left: 50%; transform: translateX(-50%);
+      display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none;
+      width: min(440px, calc(100% - 32px));
+    }
+    .toast {
+      padding: 10px 16px; border-radius: 10px;
+      background: rgba(12, 18, 32, 0.96); border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      font-size: 13.5px; font-weight: 500;
+      animation: toastIn 0.3s cubic-bezier(.2, .9, .3, 1.2);
+      transition: opacity 0.35s, transform 0.35s;
+    }
+    .toast.error { border-color: rgba(248, 113, 113, 0.55); color: #fecaca; }
+    .toast.success { border-color: rgba(74, 222, 128, 0.5); color: #bbf7d0; }
+    .toast.out { opacity: 0; transform: translateY(-8px); }
+    @keyframes toastIn { from { opacity: 0; transform: translateY(-10px) scale(0.97); } to { opacity: 1; transform: none; } }
+
+    /* ----------------------------- responsive ---------------------------- */
+    @media (max-width: 1100px) {
+      .outcomes { display: none; }
+      .brand-sub { display: none; }
+    }
+    @media (max-width: 760px) {
+      .topbar { grid-template-columns: auto 1fr auto; padding: 8px 12px; gap: 8px; }
+      .brand-title, .brand-sub { display: none; }
+      .brand svg { width: 28px; height: 28px; }
+      .status { justify-content: center; gap: 8px; }
+      .seated { display: none; }
+      .phase-pill { padding: 6px 10px; font-size: 11px; }
+      .controls { padding: 8px 12px 10px; gap: 10px; justify-content: center; }
+      .chip { width: 42px; height: 42px; font-size: 12px; }
+      .chip::before { inset: 7px; }
+      .rack { gap: 6px; }
+      .ledger { gap: 12px; order: -1; flex: 1 1 100%; justify-content: space-between; }
+      .stat { min-width: 0; }
+      .stat strong { font-size: 16px; }
+      .btn { padding: 8px 11px; font-size: 12.5px; }
+      .btn kbd { display: none; }
+      .card { padding: 22px 18px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand">
+        <svg viewBox="0 0 64 64" aria-hidden="true">
+          <defs>
+            <linearGradient id="lg-gold" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#f3d98a" /><stop offset=".6" stop-color="#d4af37" /><stop offset="1" stop-color="#8f6f1f" />
+            </linearGradient>
+          </defs>
+          <circle cx="32" cy="32" r="30" fill="url(#lg-gold)" />
+          <circle cx="32" cy="32" r="25" fill="#101624" />
+          <g stroke="url(#lg-gold)" stroke-width="2">
+            <path d="M32 8v10M32 46v10M8 32h10M46 32h10M15 15l7 7M42 42l7 7M49 15l-7 7M22 42l-7 7" />
+          </g>
+          <circle cx="32" cy="32" r="9" fill="url(#lg-gold)" />
+          <circle cx="44" cy="22" r="3.2" fill="#fff" />
+        </svg>
+        <div>
+          <span class="brand-title">ROYALE ROULETTE</span>
+          <span class="brand-sub">European · Single Zero</span>
+        </div>
+      </div>
+
+      <div class="status">
+        <div class="phase-pill" id="phasePill"><span class="dot"></span><span id="phaseLabel">Connecting…</span></div>
+        <div class="timer" id="timer" hidden>
+          <svg viewBox="0 0 36 36" aria-hidden="true">
+            <circle class="track" cx="18" cy="18" r="15.5" />
+            <circle class="bar" id="timerBar" cx="18" cy="18" r="15.5" stroke-dasharray="97.4" stroke-dashoffset="0" />
+          </svg>
+          <span id="timerText">30</span>
+        </div>
+        <div class="seated" title="Seated players">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <circle cx="9" cy="8" r="3.5" /><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5" />
+            <circle cx="17" cy="9" r="2.6" /><path d="M16.5 14.6c2.6.1 4.4 1.7 5 4.4" />
+          </svg>
+          <span id="playerCount">0/8</span>
+        </div>
+      </div>
+
+      <div class="top-actions">
+        <span class="conn" id="connDot" title="Disconnected"></span>
+        <button class="icon-btn" id="btnMute" type="button" aria-label="Mute sound" title="Sound (M)">
+          <svg id="iconSound" viewBox="0 0 24 24" fill="none" stroke="#f3d98a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M11 5 6 9H3v6h3l5 4z" fill="#f3d98a" stroke="none" /><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" />
+          </svg>
+          <svg id="iconMuted" viewBox="0 0 24 24" fill="none" stroke="#97a0b3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
+            <path d="M11 5 6 9H3v6h3l5 4z" fill="#97a0b3" stroke="none" /><path d="m16 9 6 6M22 9l-6 6" />
+          </svg>
+        </button>
+        <button class="icon-btn info" id="btnInfo" type="button" aria-label="Rules and payouts" title="Rules &amp; payouts (I)">i</button>
+      </div>
+    </header>
+
+    <main id="stage">
+      <canvas id="table" aria-label="Roulette table" role="img"></canvas>
+      <div id="tooltip" class="tooltip" hidden></div>
+    </main>
+
+    <footer class="controls">
+      <div class="rack" id="chipRack" role="radiogroup" aria-label="Chip denomination">
+        <button class="chip" type="button" data-value="1" role="radio" title="$1 chip (1)"><span>$1</span></button>
+        <button class="chip selected" type="button" data-value="5" role="radio" title="$5 chip (2)"><span>$5</span></button>
+        <button class="chip" type="button" data-value="10" role="radio" title="$10 chip (3)"><span>$10</span></button>
+        <button class="chip" type="button" data-value="25" role="radio" title="$25 chip (4)"><span>$25</span></button>
+        <button class="chip" type="button" data-value="100" role="radio" title="$100 chip (5)"><span>$100</span></button>
+      </div>
+
+      <div class="ledger">
+        <div class="stat"><label>Bankroll</label><strong class="gold" id="statBank">$0</strong></div>
+        <div class="stat"><label>Wagered</label><strong id="statBet">$0</strong></div>
+        <div class="stat"><label>Best return</label><strong id="statBest">—</strong></div>
+        <div class="stat"><label>Coverage</label><strong id="statCover">0/37</strong></div>
+        <div class="outcomes">
+          <label>Return per winning number · 0 → 36</label>
+          <div class="strip" id="outcomeStrip"></div>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button class="btn" id="btnUndo" type="button" title="Undo last chip (Ctrl+Z)">Undo</button>
+        <button class="btn" id="btnClear" type="button" title="Remove all your bets">Clear</button>
+        <button class="btn" id="btnRebet" type="button" title="Repeat last round's bets (R)">Rebet</button>
+        <button class="btn gold" id="btnReady" type="button" title="Lock in your bets (L)">Lock Bets</button>
+        <button class="btn danger" id="btnCloseBets" type="button" hidden title="Host: end betting now">Close Bets</button>
+        <button class="btn gold pulse" id="btnStart" type="button" hidden>Start Match</button>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Join -->
+  <div class="modal" id="joinModal">
+    <form class="card join-card" id="joinForm" autocomplete="off">
+      <svg class="crest" viewBox="0 0 64 64" aria-hidden="true">
+        <circle cx="32" cy="32" r="30" fill="url(#lg-gold)" />
+        <circle cx="32" cy="32" r="25" fill="#0b4a2e" />
+        <circle cx="32" cy="32" r="17" fill="none" stroke="url(#lg-gold)" stroke-width="1.5" stroke-dasharray="3 3" />
+        <circle cx="32" cy="32" r="8" fill="url(#lg-gold)" />
+      </svg>
+      <h2>Take a Seat</h2>
+      <p>European single-zero roulette · every player starts with <strong style="color:var(--gold-hi)">$100</strong></p>
+      <div class="field">
+        <input id="nameInput" name="name" maxlength="16" placeholder="Your name" aria-label="Your name" required />
+        <button class="btn gold" id="joinBtn" type="submit">Join Table</button>
+      </div>
+      <div class="join-error" id="joinError" role="alert"></div>
+      <div class="lobby-list" id="lobbyList"></div>
+      <div class="lobby-meta" id="lobbyMeta">Connecting to the table…</div>
+    </form>
+  </div>
+
+  <!-- Rules -->
+  <div class="modal" id="rulesModal" hidden>
+    <div class="card rules-card" role="dialog" aria-modal="true" aria-labelledby="rulesTitle">
+      <button class="icon-btn close-btn" type="button" data-close aria-label="Close rules">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#f3d98a" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+      </button>
+      <h2 id="rulesTitle">Rules &amp; Payouts</h2>
+      <p>European roulette uses a single-zero wheel with 37 pockets (0–36). The ball's landing pocket decides every bet on the table. The house edge on every bet is 2.70% (1 in 37).</p>
+
+      <h3>How a round works</h3>
+      <ol>
+        <li><strong>Waiting for host</strong> — the first player seated is the host. Once two or more players are seated, the host presses <em>Start Match</em>.</li>
+        <li><strong>Betting open (30 s)</strong> — pick a chip and click spots on the felt. When every player presses <em>Lock Bets</em>, betting closes immediately. The host can also close bets early.</li>
+        <li><strong>Spinning</strong> — the server draws the winning pocket with cryptographic randomness and the wheel spins for everyone at the same time.</li>
+        <li><strong>Payout</strong> — winning chips stay on the felt and are paid; losing chips are swept off. Bankrolls update.</li>
+        <li><strong>Round summary</strong> — a 5-second recap, then betting reopens.</li>
+      </ol>
+
+      <h3>Payouts</h3>
+      <table class="payout-table">
+        <thead><tr><th>Bet</th><th>Pays</th><th>Covers</th></tr></thead>
+        <tbody>
+          <tr><td>Straight up — one number</td><td>35 : 1</td><td>1 number</td></tr>
+          <tr><td>Split — line between two numbers</td><td>17 : 1</td><td>2 numbers</td></tr>
+          <tr><td>Street — bottom edge of a column of three</td><td>11 : 1</td><td>3 numbers</td></tr>
+          <tr><td>Trio — 0-1-2 or 0-2-3</td><td>11 : 1</td><td>3 numbers</td></tr>
+          <tr><td>Corner — where four numbers meet</td><td>8 : 1</td><td>4 numbers</td></tr>
+          <tr><td>First Four — 0-1-2-3</td><td>8 : 1</td><td>4 numbers</td></tr>
+          <tr><td>Six Line — bottom edge between two streets</td><td>5 : 1</td><td>6 numbers</td></tr>
+          <tr><td>Dozen — 1st, 2nd or 3rd 12</td><td>2 : 1</td><td>12 numbers</td></tr>
+          <tr><td>Column — "2 to 1" boxes</td><td>2 : 1</td><td>12 numbers</td></tr>
+          <tr><td>Red / Black · Even / Odd · 1–18 / 19–36</td><td>1 : 1</td><td>18 numbers</td></tr>
+        </tbody>
+      </table>
+      <p style="margin-top:10px">A winning bet returns your stake plus the payout — e.g. $5 straight up on a winner returns $180 ($175 win + $5 stake). Zero loses every outside bet.</p>
+
+      <h3>Table guidelines</h3>
+      <ul>
+        <li>Every player starts with <strong>$100</strong>. Chips are deducted the moment you place them and refunded if you remove them.</li>
+        <li>Chips come in $1, $5, $10, $25 and $100. You can bet on as many spots as you like; the spot limit is $1,000.</li>
+        <li>Aim between numbers to place inside bets: hover a line for a split, an intersection for a corner, the bottom edge for a street or six line. The highlighted numbers show exactly what a spot covers.</li>
+        <li>Each player's chips carry their colour and badge. When several players share a spot, the chips cluster — hover to see who wagered what.</li>
+        <li>Locked bets can't be changed. Unlock to edit them while the timer is still running.</li>
+        <li>If you drop out, your seat is held for 45 seconds — reload the page to reclaim it. If every bankroll empties, the host can start a fresh match.</li>
+      </ul>
+
+      <h3>Controls</h3>
+      <div class="keys">
+        <div><kbd class="k">Click</kbd>Place selected chip</div>
+        <div><kbd class="k">Right-click</kbd>Remove your bet from a spot</div>
+        <div><kbd class="k">1</kbd>–<kbd class="k">5</kbd>Select $1 … $100 chip</div>
+        <div><kbd class="k">Ctrl Z</kbd>Undo last chip</div>
+        <div><kbd class="k">R</kbd>Rebet last round</div>
+        <div><kbd class="k">L</kbd>Lock / unlock bets</div>
+        <div><kbd class="k">M</kbd>Mute sound</div>
+        <div><kbd class="k">I</kbd>Toggle this guide</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Round summary -->
+  <div class="modal" id="summaryModal" hidden>
+    <div class="card summary-card" role="dialog" aria-modal="true" aria-labelledby="summaryTitle">
+      <button class="icon-btn close-btn" type="button" data-close aria-label="Close summary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#f3d98a" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+      </button>
+      <h2 id="summaryTitle">Round Results</h2>
+      <div class="result-disc" id="summaryDisc">0</div>
+      <div class="result-tags" id="summaryTags"></div>
+      <table class="summary-table">
+        <thead><tr><th>Player</th><th>Wagered</th><th>Returned</th><th>Net</th><th>Bankroll</th></tr></thead>
+        <tbody id="summaryBody"></tbody>
+      </table>
+      <div class="countdown"><i id="summaryBar"></i></div>
+      <div class="summary-foot" id="summaryFoot">Next round starting…</div>
+    </div>
+  </div>
+
+  <div id="toasts" aria-live="polite"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/client.js"></script>
+</body>
+</html>
