@@ -2049,9 +2049,17 @@
     store.joining = true;
     const btn = byId('joinBtn');
     btn.disabled = true;
-    socket.emit('player:join', { name, token: store.token }, (res) => {
+    // Silent (automatic) joins may only reclaim the seat we already had.
+    const resumeOnly = Boolean(silent && store.token);
+    socket.emit('player:join', { name, token: store.token, resumeOnly }, (res) => {
       store.joining = false;
       btn.disabled = false;
+      if (res && res.code === 'SEAT_GONE') {
+        clearIdentity();
+        byId('joinError').textContent = 'That game has ended — join again to start fresh.';
+        showJoin();
+        return;
+      }
       if (!res || !res.ok) {
         const msg = (res && res.error) || 'Could not join the table.';
         byId('joinError').textContent = msg;
@@ -2069,6 +2077,25 @@
       byId('joinError').textContent = '';
       renderHUD();
     });
+  }
+
+  /** Forget this tab's seat so nothing auto-rejoins on reload. */
+  function clearIdentity() {
+    store.me = null;
+    store.token = null;
+    storageSet('sessionStorage', 'rr-token', null);
+    storageSet('sessionStorage', 'rr-name', null);
+  }
+
+  function leaveTable() {
+    if (!getMe()) return;
+    if (!window.confirm('Leave the table? Your seat and chips will be given up.')) return;
+    emit('player:leave');
+    clearIdentity();
+    hideModal('summaryModal');
+    byId('joinError').textContent = '';
+    showJoin();
+    renderHUD();
   }
 
   socket.on('connect', () => {
@@ -2130,10 +2157,8 @@
     if (!prev || prev.phase !== s.phase) onPhaseChange(prev ? prev.phase : null, s.phase, s);
 
     if (store.me && !store.players.has(store.me) && !store.joining) {
-      // Our seat expired (e.g. a long disconnect) — ask the player to rejoin.
-      store.me = null;
-      store.token = null;
-      storageSet('sessionStorage', 'rr-token', null);
+      // Our seat expired or the table was reset — ask the player to rejoin.
+      clearIdentity();
       showJoin();
     }
 
@@ -2334,6 +2359,7 @@
   byId('btnStart').addEventListener('click', () => emit('game:start'));
   byId('btnCloseBets').addEventListener('click', () => emit('game:closeBets'));
   byId('btnInfo').addEventListener('click', () => toggleModal('rulesModal'));
+  byId('btnLeave').addEventListener('click', leaveTable);
   byId('btnMute').addEventListener('click', () => {
     audio.unlock();
     audio.setMuted(!audio.muted);
@@ -2429,8 +2455,9 @@
 
   function renderHUD() {
     const s = store.state;
-    if (!s) return;
     const me = getMe();
+    byId('btnLeave').hidden = !me;
+    if (!s) return;
     const pill = byId('phasePill');
     pill.dataset.phase = s.phase;
     if (socket.connected) byId('phaseLabel').textContent = `${PHASE_LABEL[s.phase] || s.phase}${s.round ? ` · R${s.round}` : ''}`;

@@ -163,7 +163,7 @@ const reply = (ack, payload) => {
   if (typeof ack === 'function') ack(payload);
 };
 const ok = (extra) => ({ ok: true, ...extra });
-const fail = (error) => ({ ok: false, error });
+const fail = (error, code) => ({ ok: false, error, ...(code ? { code } : {}) });
 
 /* -------------------------------------------------------------------------- */
 /*  Table / game state machine                                                */
@@ -309,6 +309,10 @@ class RouletteTable {
       return ok({ playerId: resume.id, token: resume.token, resumed: true });
     }
 
+    // Automatic reconnects may only reclaim an existing seat; if it's gone the
+    // player goes back to the join screen instead of being silently re-seated.
+    if (payload?.resumeOnly === true) return fail('Your previous seat is no longer available.', 'SEAT_GONE');
+
     const seat = this.freeSeat();
     if (seat === -1) return fail(`The table is full (${CONFIG.maxSeats} seats). Please try again shortly.`);
 
@@ -343,10 +347,22 @@ class RouletteTable {
     p.connected = false;
     p.socketId = null;
     p.ready = false;
+    // Everyone has left: wipe the table so the next visitors start a fresh game.
+    if (this.connectedPlayers().length === 0) {
+      this.resetTable();
+      return;
+    }
     if (this.hostId === p.id) this.migrateHost();
     p.graceTimer = setTimeout(() => this.removePlayer(p.id), CONFIG.reconnectGraceMs);
     this.broadcast();
     this.checkAllReady();
+  }
+
+  /** Explicit "Leave table" — gives up the seat immediately, no grace period. */
+  leave(p, socket) {
+    socket.data.playerId = null;
+    this.removePlayer(p.id);
+    return ok();
   }
 
   migrateHost() {
@@ -370,7 +386,7 @@ class RouletteTable {
     this.players.delete(playerId);
     if (this.hostId === playerId) this.migrateHost();
 
-    if (this.players.size === 0) {
+    if (this.connectedPlayers().length === 0) {
       this.resetTable();
       return;
     }
@@ -381,6 +397,9 @@ class RouletteTable {
 
   resetTable() {
     this.clearSchedule();
+    for (const p of this.players.values()) clearTimeout(p.graceTimer);
+    this.players.clear();
+    this.tokenIndex.clear();
     this.phase = PHASE.WAITING_FOR_HOST;
     this.bets.clear();
     this.betLog.clear();
@@ -775,6 +794,7 @@ io.on('connection', (socket) => {
   action('bet:clear', (p) => table.clearBets(p));
   action('bet:rebet', (p) => table.rebet(p));
   action('player:ready', (p, data) => table.setReady(p, data));
+  action('player:leave', (p) => table.leave(p, socket));
 
   socket.on('disconnect', () => {
     try {
