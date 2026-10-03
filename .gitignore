@@ -1,0 +1,17 @@
+# Dependencies (rebuilt from package.json with `npm install`)
+node_modules/
+
+# Logs
+npm-debug.log*
+*.log
+
+# Environment / local config
+.env
+.env.*
+
+# OS and editor clutter
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
