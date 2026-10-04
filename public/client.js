@@ -435,12 +435,24 @@
   /* ======================================================================== */
 
   const store = {
-    config: { maxSeats: 8, minPlayersToStart: 2, chipValues: CHIP_VALUES, cleanupMs: 5000, maxBetPerSpot: 1000 },
+    config: {
+      maxSeats: 8,
+      minPlayersToStart: 2,
+      chipValues: CHIP_VALUES,
+      cleanupMs: 5000,
+      maxBetPerSpot: 1000,
+      minTotalBet: 5,
+      strikeLimit: 5,
+      strikeStreakLimit: 3,
+    },
     legal: new Map(),
     spots: new Map(),
     state: null,
     players: new Map(),
     betsByKey: new Map(),
+    votes: new Map(), // targetId -> { voters, required, expiresIn }
+    adminFeed: { pending: [], log: [] },
+    awaitingApproval: null, // { name, unlocksAt } while the host reviews our rejoin
     me: null,
     token: storageGet('sessionStorage', 'rr-token'),
     name: storageGet('sessionStorage', 'rr-name') || '',
@@ -463,6 +475,7 @@
   };
 
   const getMe = () => (store.me ? store.players.get(store.me) || null : null);
+  const amAdmin = () => Boolean(store.me && store.state && store.state.adminId === store.me);
   const isPhase = (...phases) => Boolean(store.state) && phases.includes(store.state.phase);
   const canBet = () => {
     const me = getMe();
@@ -1520,7 +1533,7 @@
       const remaining = Math.max(0, store.deadline - now);
       const eligible = connected.filter((p) => p.currentChips > 0 || p.totalBet > 0);
       const locked = eligible.filter((p) => p.ready).length;
-      sub = `${Math.ceil(remaining / 1000)}s remaining  ·  ${locked}/${eligible.length} locked in`;
+      sub = `${Math.ceil(remaining / 1000)}s remaining  ·  min ${money(store.config.minTotalBet)} per round  ·  ${locked}/${eligible.length} locked in`;
       progress = store.duration ? remaining / store.duration : 0;
     } else if (s.phase === PHASE.SPINNING) {
       title = 'NO MORE BETS';
@@ -1954,22 +1967,37 @@
     drawIcon(ctx, p.avatarIcon, ax, y, 22, '#fff');
 
     if (p.isHost) {
+      // Gold crown: host on localhost (full powers). Silver: host elsewhere.
+      const isAdmin = store.state && store.state.adminId === p.id;
       ctx.save();
       ctx.translate(ax - 10, top - 13);
       ctx.scale(20 / 24, 20 / 24);
-      ctx.shadowColor = 'rgba(0,0,0,0.7)';
-      ctx.shadowBlur = 4 * view.S;
-      ctx.fillStyle = goldGradient(ctx, 4, 19);
+      ctx.shadowColor = isAdmin ? 'rgba(243,217,138,0.8)' : 'rgba(0,0,0,0.7)';
+      ctx.shadowBlur = (isAdmin ? 8 : 4) * view.S;
+      ctx.fillStyle = isAdmin ? goldGradient(ctx, 4, 19) : silverGradient(ctx, 12);
       ctx.fill(path2d(CROWN_PATH));
       ctx.restore();
     }
 
     // Name + numbers.
     const tx = left + 66;
+    const vote = store.votes.get(p.id);
     let tagW = 0;
     if (isMe) tagW += drawTag('YOU', left + SEAT_W - 8, top + 15, 'rgba(243,217,138,0.95)', '#1b1406') + 4;
-    if (!p.connected) tagW += drawTag('AWAY', left + SEAT_W - 8 - tagW, top + 15, 'rgba(148,163,184,0.9)', '#0b1020') + 4;
+    if (vote) tagW += drawTag(`KICK ${vote.voters.length}/${vote.required}`, left + SEAT_W - 8 - tagW, top + 15, 'rgba(248,113,113,0.95)', '#2a0606') + 4;
+    else if (!p.connected) tagW += drawTag('AWAY', left + SEAT_W - 8 - tagW, top + 15, 'rgba(148,163,184,0.9)', '#0b1020') + 4;
+    else if (p.confiscated > 0) tagW += drawTag('FROZEN', left + SEAT_W - 8 - tagW, top + 15, 'rgba(96,165,250,0.95)', '#04122b') + 4;
     else if (p.ready && isPhase(PHASE.BETTING)) tagW += drawTag('LOCKED', left + SEAT_W - 8 - tagW, top + 15, 'rgba(74,222,128,0.92)', '#052e16') + 4;
+
+    // Minimum-bet strikes: one pip per strike, out of the match limit.
+    if (p.strikes > 0) {
+      const limit = store.config.strikeLimit || 5;
+      for (let i = 0; i < limit; i++) {
+        disc(ctx, ax + (i - (limit - 1) / 2) * 8, top + SEAT_H - 5, 2.6);
+        ctx.fillStyle = i < p.strikes ? '#f87171' : 'rgba(255,255,255,0.14)';
+        ctx.fill();
+      }
+    }
 
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
@@ -2060,24 +2088,101 @@
         showJoin();
         return;
       }
+      if (res && res.code === 'PENDING') {
+        // We left recently from this network — the localhost host decides.
+        store.awaitingApproval = { name, message: res.error, unlocksAt: Date.now() + (res.unlocksIn || 0) };
+        showJoin();
+        renderJoinStatus();
+        return;
+      }
       if (!res || !res.ok) {
         const msg = (res && res.error) || 'Could not join the table.';
+        store.awaitingApproval = null;
         byId('joinError').textContent = msg;
         showJoin();
+        renderJoinStatus();
         if (!silent) toast(msg, 'error');
         return;
       }
-      store.me = res.playerId;
-      store.token = res.token;
-      store.name = name;
-      storageSet('sessionStorage', 'rr-token', res.token);
-      storageSet('sessionStorage', 'rr-name', name);
-      storageSet('localStorage', 'rr-last-name', name);
-      byId('joinModal').hidden = true;
-      byId('joinError').textContent = '';
-      renderHUD();
+      finishJoin(name, res);
     });
   }
+
+  function finishJoin(name, res) {
+    store.me = res.playerId;
+    store.token = res.token;
+    store.name = name;
+    store.awaitingApproval = null;
+    storageSet('sessionStorage', 'rr-token', res.token);
+    storageSet('sessionStorage', 'rr-name', name);
+    storageSet('localStorage', 'rr-last-name', name);
+    byId('joinModal').hidden = true;
+    byId('joinError').textContent = '';
+    renderJoinStatus();
+    renderHUD();
+  }
+
+  /** Join-screen status line + button label while waiting on the host. */
+  function renderJoinStatus() {
+    const wait = store.awaitingApproval;
+    const btn = byId('joinBtn');
+    const status = byId('joinError');
+    status.classList.toggle('waiting', Boolean(wait));
+    if (!wait) {
+      btn.textContent = 'Join Table';
+      return;
+    }
+    const left = Math.max(0, wait.unlocksAt - Date.now());
+    const mm = Math.floor(left / 60000);
+    const ss = String(Math.floor((left % 60000) / 1000)).padStart(2, '0');
+    status.textContent = left > 0 ? `${wait.message} (or try again in ${mm}:${ss})` : 'Your lock has expired — press Join Table.';
+    btn.textContent = left > 0 ? 'Ask Again' : 'Join Table';
+  }
+  setInterval(() => {
+    if (store.awaitingApproval && !byId('joinModal').hidden) renderJoinStatus();
+  }, 1000);
+
+  socket.on('join:approved', (res) => {
+    const name = store.awaitingApproval ? store.awaitingApproval.name : store.name;
+    toast('The host let you back in. Welcome back!', 'success');
+    finishJoin(name, res);
+  });
+
+  socket.on('join:denied', ({ message }) => {
+    store.awaitingApproval = null;
+    renderJoinStatus();
+    byId('joinError').textContent = message;
+    showJoin();
+  });
+
+  socket.on('join:retry', ({ message }) => {
+    store.awaitingApproval = null;
+    renderJoinStatus();
+    byId('joinError').textContent = message;
+  });
+
+  socket.on('kicked', ({ message }) => {
+    clearIdentity();
+    closeSeatMenu();
+    hideModal('summaryModal');
+    store.awaitingApproval = null;
+    renderJoinStatus();
+    byId('joinError').textContent = message;
+    showJoin();
+    toast(message, 'error', 5000);
+  });
+
+  socket.on('admin:feed', (feed) => {
+    store.adminFeed = feed;
+    renderAdmin();
+  });
+
+  socket.on('admin:request', ({ name, pastNames }) => {
+    audio.chime();
+    const was = pastNames.filter((n) => n !== name);
+    toast(`${name}${was.length ? ` (was ${was.join(', ')})` : ''} wants to rejoin — open the requests log.`, 'info', 6000);
+    byId('btnRequests').classList.add('ping');
+  });
 
   /** Forget this tab's seat so nothing auto-rejoins on reload. */
   function clearIdentity() {
@@ -2141,6 +2246,7 @@
     store.state = s;
     store.players = new Map(s.players.map((p) => [p.id, p]));
     store.betsByKey = new Map(s.bets.map((b) => [b.key, b]));
+    store.votes = new Map((s.votes || []).map((v) => [v.targetId, v]));
     const now = performance.now();
     if (s.phaseEndsIn !== null && s.phaseEndsIn !== undefined) {
       store.deadline = now + s.phaseEndsIn;
@@ -2164,6 +2270,7 @@
 
     renderHUD();
     renderLobby();
+    refreshSeatMenu();
     tooltipState.dirty = true;
     refreshTooltip();
   }
@@ -2267,6 +2374,17 @@
     return { x: ((e.clientX - r.left) * W) / r.width, y: ((e.clientY - r.top) * H) / r.height };
   }
 
+  /** The seated player whose badge contains the point, if any. */
+  function seatAt(x, y) {
+    const s = store.state;
+    if (!s) return null;
+    for (const p of s.players) {
+      const seat = SEATS[p.seat];
+      if (seat && Math.abs(x - seat.x) <= SEAT_W / 2 && Math.abs(y - seat.y) <= SEAT_H / 2) return p;
+    }
+    return null;
+  }
+
   canvas.addEventListener('pointermove', (e) => {
     const p = toLogical(e);
     const key = hitTest(p.x, p.y);
@@ -2276,7 +2394,7 @@
       input.hoverKey = key;
       tooltipState.dirty = true;
     }
-    canvas.style.cursor = key && canBet() ? 'pointer' : 'default';
+    canvas.style.cursor = (key && canBet()) || (getMe() && seatAt(p.x, p.y)) ? 'pointer' : 'default';
     refreshTooltip();
   });
 
@@ -2288,8 +2406,226 @@
   canvas.addEventListener('click', (e) => {
     audio.unlock();
     const p = toLogical(e);
+    const seated = seatAt(p.x, p.y);
+    if (seated) {
+      openSeatMenu(seated.id);
+      return;
+    }
+    closeSeatMenu();
     const key = hitTest(p.x, p.y);
     if (key) placeBetAt(key);
+  });
+
+  /* ------------------------------ seat menu ------------------------------ */
+
+  const seatMenu = { el: byId('seatMenu'), targetId: null };
+
+  function openSeatMenu(playerId) {
+    if (!getMe()) return;
+    seatMenu.targetId = playerId;
+    refreshSeatMenu();
+  }
+
+  function closeSeatMenu() {
+    seatMenu.targetId = null;
+    seatMenu.el.hidden = true;
+  }
+
+  function menuButton(label, cls, onClick, disabledReason) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = `menu-btn ${cls || ''}`.trim();
+    b.textContent = label;
+    if (disabledReason) {
+      b.disabled = true;
+      b.title = disabledReason;
+    } else {
+      b.addEventListener('click', onClick);
+    }
+    return b;
+  }
+
+  function refreshSeatMenu() {
+    const el = seatMenu.el;
+    const s = store.state;
+    const target = seatMenu.targetId ? store.players.get(seatMenu.targetId) : null;
+    const me = getMe();
+    if (!target || !me || !s) {
+      closeSeatMenu();
+      return;
+    }
+    el.replaceChildren();
+
+    const head = document.createElement('div');
+    head.className = 'menu-head';
+    const nm = document.createElement('strong');
+    nm.textContent = target.id === me.id ? `${target.name} (you)` : target.name;
+    head.append(avatarEl(target), nm);
+    el.appendChild(head);
+
+    const info = document.createElement('div');
+    info.className = 'menu-info';
+    const lines = [`Bank ${money(target.currentChips)} · on table ${money(target.totalBet)}`];
+    lines.push(
+      `Min-bet strikes ${target.strikes}/${store.config.strikeLimit} · ${target.missStreak}/${store.config.strikeStreakLimit} in a row`,
+    );
+    if (target.confiscated > 0) lines.push(`${money(target.confiscated)} frozen for skipping the minimum`);
+    if (target.id === s.adminId) lines.push('Host on localhost — full powers');
+    else if (target.isHost) lines.push('Host (not on localhost — no moderation powers)');
+    for (const text of lines) {
+      const d = document.createElement('div');
+      d.textContent = text;
+      info.appendChild(d);
+    }
+    el.appendChild(info);
+
+    const actions = document.createElement('div');
+    actions.className = 'menu-actions';
+    if (target.id !== me.id) {
+      const vote = store.votes.get(target.id);
+      const voted = Boolean(vote && vote.voters.includes(me.id));
+      const others = s.players.filter((p) => p.connected && p.id !== target.id).length;
+      let reason = null;
+      if (target.id === s.adminId) reason = "The host on localhost can't be vote-kicked";
+      else if (!target.connected) reason = 'Player is disconnected';
+      else if (others < 2) reason = 'Vote-kick needs at least 3 players';
+      const tally = vote ? ` (${vote.voters.length}/${vote.required})` : '';
+      actions.appendChild(
+        menuButton(voted ? `Withdraw kick vote${tally}` : `Vote to kick${tally}`, 'warn', () => emit('vote:kick', { targetId: target.id }), reason),
+      );
+      if (amAdmin()) {
+        actions.appendChild(
+          menuButton('Remove from table', 'danger', () => {
+            if (window.confirm(`Remove ${target.name} from the table?`)) {
+              emit('admin:kick', { targetId: target.id });
+              closeSeatMenu();
+            }
+          }),
+        );
+      }
+    }
+    if (amAdmin() && target.confiscated > 0) {
+      actions.appendChild(
+        menuButton(`Restore ${money(target.confiscated)}`, 'good', () => emit('admin:restore', { targetId: target.id })),
+      );
+    }
+    if (actions.children.length) el.appendChild(actions);
+
+    // Position next to the badge, kept inside the stage.
+    el.hidden = false;
+    const seat = SEATS[target.seat];
+    const cr = canvas.getBoundingClientRect();
+    const sr = stage.getBoundingClientRect();
+    const scale = cr.width / W;
+    const below = seat.y < H / 2;
+    let left = cr.left - sr.left + seat.x * scale - el.offsetWidth / 2;
+    let top = cr.top - sr.top + (below ? seat.y + SEAT_H / 2 + 8 : seat.y - SEAT_H / 2 - 8) * scale;
+    if (!below) top -= el.offsetHeight;
+    left = clamp(left, 8, sr.width - el.offsetWidth - 8);
+    top = clamp(top, 8, sr.height - el.offsetHeight - 8);
+    el.style.left = `${left}px`;
+    el.style.top = `${top}px`;
+  }
+
+  document.addEventListener('pointerdown', (e) => {
+    if (seatMenu.el.hidden) return;
+    if (seatMenu.el.contains(e.target) || e.target === canvas) return;
+    closeSeatMenu();
+  });
+
+  /* ----------------------------- admin panel ----------------------------- */
+
+  function fmtAgo(ms) {
+    const s = Math.round(ms / 1000);
+    if (s < 60) return `${s}s ago`;
+    const m = Math.floor(s / 60);
+    return m < 60 ? `${m}m ago` : `${Math.floor(m / 60)}h ago`;
+  }
+
+  const REASON_TEXT = { left: 'left', timeout: 'disconnected', kicked: 'was removed', votekick: 'was voted off' };
+
+  function renderAdmin() {
+    const admin = amAdmin();
+    byId('adminTools').hidden = !admin;
+    if (!admin) {
+      byId('requestPanel').hidden = true;
+      return;
+    }
+    const { pending, log } = store.adminFeed;
+    const badge = byId('reqBadge');
+    badge.textContent = String(pending.length);
+    badge.hidden = pending.length === 0;
+    if (!pending.length) byId('btnRequests').classList.remove('ping');
+
+    const list = byId('requestList');
+    list.replaceChildren();
+    if (!pending.length) {
+      const empty = document.createElement('div');
+      empty.className = 'req-empty';
+      empty.textContent = 'No one is waiting to rejoin.';
+      list.appendChild(empty);
+    }
+    for (const r of pending) {
+      const item = document.createElement('div');
+      item.className = 'req-item';
+      const title = document.createElement('div');
+      title.className = 'req-title';
+      title.textContent = r.name;
+      const past = document.createElement('div');
+      past.className = 'req-meta';
+      past.textContent = `Previously: ${r.pastNames.join(', ')}`;
+      const meta = document.createElement('div');
+      meta.className = 'req-meta';
+      const frozen = r.confiscated ? ` (+${money(r.confiscated)} frozen)` : '';
+      meta.textContent = `${REASON_TEXT[r.reason] || 'left'} ${fmtAgo(r.leftAgo)} · returns with ${money(r.bankroll)}${frozen}`;
+      const row = document.createElement('div');
+      row.className = 'req-actions';
+      row.append(
+        menuButton('Let in', 'good', () => emit('admin:resolve', { requestId: r.id, allow: true })),
+        menuButton('Deny', 'danger', () => emit('admin:resolve', { requestId: r.id, allow: false })),
+      );
+      item.append(title, past, meta, row);
+      list.appendChild(item);
+    }
+
+    const logEl = byId('adminLog');
+    logEl.replaceChildren();
+    for (const entry of [...log].reverse()) {
+      const line = document.createElement('div');
+      line.className = `log-line ${entry.kind}`;
+      const when = document.createElement('span');
+      when.textContent = fmtAgo(entry.ago);
+      const text = document.createElement('span');
+      text.textContent = entry.text;
+      line.append(text, when);
+      logEl.appendChild(line);
+    }
+    if (!log.length) {
+      const empty = document.createElement('div');
+      empty.className = 'req-empty';
+      empty.textContent = 'Nothing yet.';
+      logEl.appendChild(empty);
+    }
+  }
+
+  byId('btnRequests').addEventListener('click', () => {
+    const panel = byId('requestPanel');
+    panel.hidden = !panel.hidden;
+    byId('btnRequests').classList.remove('ping');
+    byId('btnRequests').setAttribute('aria-expanded', String(!panel.hidden));
+  });
+
+  byId('btnRestart').addEventListener('click', () => {
+    if (!amAdmin()) return;
+    if (window.confirm('Restart the game? Every player goes back to $100 and the match returns to the lobby.')) {
+      emit('admin:restart');
+    }
+  });
+
+  document.addEventListener('pointerdown', (e) => {
+    const panel = byId('requestPanel');
+    if (panel.hidden || byId('adminTools').contains(e.target)) return;
+    panel.hidden = true;
   });
 
   canvas.addEventListener('contextmenu', (e) => {
@@ -2392,6 +2728,8 @@
     if (e.key === 'Escape') {
       hideModal('rulesModal');
       hideModal('summaryModal');
+      closeSeatMenu();
+      byId('requestPanel').hidden = true;
       return;
     }
     if (typing || e.altKey) return;
@@ -2457,6 +2795,7 @@
     const s = store.state;
     const me = getMe();
     byId('btnLeave').hidden = !me;
+    renderAdmin();
     if (!s) return;
     const pill = byId('phasePill');
     pill.dataset.phase = s.phase;
@@ -2465,7 +2804,14 @@
 
     const { returns, wagered } = myExposure();
     byId('statBank').textContent = money(me ? me.currentChips : 0);
-    byId('statBet').textContent = money(wagered);
+    // Minimum total stake: $5, or everything a short-stacked player has.
+    const required = me && s.phase === PHASE.BETTING ? me.minRequired : 0;
+    const short = required > 0 && wagered < required;
+    const statBet = byId('statBet');
+    statBet.textContent = money(wagered);
+    statBet.classList.toggle('short', short);
+    statBet.title = required > 0 ? `Minimum this round: ${money(required)} in total` : '';
+    byId('minLabel').textContent = required > 0 ? `Wagered · min ${money(required)}` : 'Wagered';
     let best = 0;
     let bestN = null;
     let covered = 0;
@@ -2498,8 +2844,11 @@
     byId('btnRebet').disabled = !betting;
 
     const readyBtn = byId('btnReady');
-    readyBtn.disabled = !me || !me.connected || s.phase !== PHASE.BETTING;
     const locked = Boolean(me && me.ready && s.phase === PHASE.BETTING);
+    // Can't lock a stake that wouldn't count (betting nothing at all is still allowed).
+    const invalidStake = !locked && wagered > 0 && short;
+    readyBtn.disabled = !me || !me.connected || s.phase !== PHASE.BETTING || invalidStake;
+    readyBtn.title = invalidStake ? `Bet at least ${money(required)} in total first` : 'Lock in your bets (L)';
     readyBtn.textContent = locked ? 'Locked ✓ Unlock' : 'Lock Bets';
     readyBtn.classList.toggle('locked', locked);
     readyBtn.classList.toggle('gold', !locked);

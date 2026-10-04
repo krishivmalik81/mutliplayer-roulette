@@ -256,6 +256,77 @@
       50% { box-shadow: 0 0 0 4px rgba(243, 217, 138, 0.25), 0 0 28px rgba(243, 217, 138, 0.55); }
     }
 
+    .stat strong.short { color: var(--lose); }
+
+    /* ---------------------------- seat menu ----------------------------- */
+    .seat-menu {
+      position: absolute; z-index: 7;
+      width: 250px; padding: 12px;
+      background: rgba(8, 12, 22, 0.97);
+      border: 1px solid var(--line); border-radius: 12px;
+      box-shadow: var(--shadow);
+      font-size: 12.5px;
+      animation: fadeIn 0.15s ease;
+    }
+    .menu-head { display: flex; align-items: center; gap: 8px; font-size: 14px; margin-bottom: 6px; }
+    .menu-info { color: var(--muted); line-height: 1.55; }
+    .menu-actions, .req-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .menu-btn {
+      flex: 1 1 auto; padding: 7px 10px; border-radius: 8px; cursor: pointer;
+      font-weight: 700; font-size: 12px;
+      background: rgba(255, 255, 255, 0.05); border: 1px solid var(--line);
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .menu-btn:hover:not(:disabled) { border-color: var(--gold); background: rgba(212, 175, 55, 0.1); }
+    .menu-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .menu-btn.warn { color: #fde68a; border-color: rgba(250, 204, 21, 0.4); }
+    .menu-btn.danger { color: #fecaca; border-color: rgba(248, 113, 113, 0.5); }
+    .menu-btn.danger:hover:not(:disabled) { background: rgba(248, 113, 113, 0.14); border-color: var(--lose); }
+    .menu-btn.good { color: #bbf7d0; border-color: rgba(74, 222, 128, 0.5); }
+    .menu-btn.good:hover:not(:disabled) { background: rgba(74, 222, 128, 0.12); border-color: var(--win); }
+
+    /* --------------------------- admin tools ---------------------------- */
+    .admin-tools { position: relative; display: flex; align-items: center; gap: 8px; }
+    .req-btn {
+      position: relative; height: 38px; padding: 0 10px 0 12px; border-radius: 19px;
+      display: inline-flex; align-items: center; gap: 4px; cursor: pointer;
+      background: radial-gradient(circle at 35% 30%, #1d2740, #0c1220);
+      border: 1px solid var(--line);
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .req-btn:hover { border-color: var(--gold); }
+    .req-btn svg { width: 18px; height: 18px; }
+    .req-btn .caret { width: 14px; height: 14px; }
+    .req-btn[aria-expanded="true"] .caret { transform: rotate(180deg); }
+    .req-btn.ping { animation: glow 1.2s ease-in-out infinite; border-color: var(--gold); }
+    .req-badge {
+      position: absolute; top: -5px; left: 24px;
+      min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+      background: var(--lose); color: #fff; font-size: 11px; font-weight: 800;
+      display: grid; place-items: center;
+    }
+    .request-panel {
+      position: absolute; top: calc(100% + 10px); right: 0; z-index: 25;
+      width: min(340px, calc(100vw - 24px)); max-height: 70vh; overflow: auto; padding: 14px;
+      background: rgba(8, 12, 22, 0.98);
+      border: 1px solid var(--line); border-radius: 12px;
+      box-shadow: var(--shadow);
+      animation: fadeIn 0.15s ease;
+    }
+    .request-panel h4 { margin: 0 0 8px; font-family: var(--font-display); font-size: 13px; letter-spacing: 0.08em; color: var(--gold); }
+    .request-panel h4:not(:first-child) { margin-top: 14px; }
+    .req-item { padding: 10px; border-radius: 10px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.07); margin-bottom: 8px; }
+    .req-title { font-weight: 700; font-size: 14px; }
+    .req-meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+    .req-empty { color: var(--muted); font-size: 12.5px; padding: 4px 0; }
+    .admin-log { display: flex; flex-direction: column; gap: 4px; }
+    .log-line { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; color: #cfd5e2; }
+    .log-line span:last-child { color: var(--muted); white-space: nowrap; }
+    .log-line.kicked, .log-line.votekick, .log-line.freeze, .log-line.deny { color: #fecaca; }
+    .log-line.allow, .log-line.restore { color: #bbf7d0; }
+    .log-line.request { color: #fde68a; }
+    .join-error.waiting { color: #fde68a; }
+
     /* ------------------------------- modals ------------------------------ */
     .modal {
       position: fixed; inset: 0; z-index: 20;
@@ -445,6 +516,26 @@
       </div>
 
       <div class="top-actions">
+        <div class="admin-tools" id="adminTools" hidden>
+          <button class="icon-btn" id="btnRestart" type="button" aria-label="Restart game" title="Restart game (everyone back to $100)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#f3d98a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 4v5h5" />
+            </svg>
+          </button>
+          <button class="req-btn" id="btnRequests" type="button" aria-expanded="false" aria-controls="requestPanel" title="Rejoin requests &amp; moderation log">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#f3d98a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+            </svg>
+            <span class="req-badge" id="reqBadge" hidden>0</span>
+            <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="#f3d98a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+          </button>
+          <div class="request-panel" id="requestPanel" hidden>
+            <h4>Rejoin requests</h4>
+            <div id="requestList"></div>
+            <h4>Log</h4>
+            <div class="admin-log" id="adminLog"></div>
+          </div>
+        </div>
         <span class="conn" id="connDot" title="Disconnected"></span>
         <button class="icon-btn" id="btnLeave" type="button" aria-label="Leave table" title="Leave table" hidden>
           <svg viewBox="0 0 24 24" fill="none" stroke="#f3d98a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -466,6 +557,7 @@
     <main id="stage">
       <canvas id="table" aria-label="Roulette table" role="img"></canvas>
       <div id="tooltip" class="tooltip" hidden></div>
+      <div id="seatMenu" class="seat-menu" role="menu" hidden></div>
     </main>
 
     <footer class="controls">
@@ -479,7 +571,7 @@
 
       <div class="ledger">
         <div class="stat"><label>Bankroll</label><strong class="gold" id="statBank">$0</strong></div>
-        <div class="stat"><label>Wagered</label><strong id="statBet">$0</strong></div>
+        <div class="stat"><label id="minLabel">Wagered</label><strong id="statBet">$0</strong></div>
         <div class="stat"><label>Best return</label><strong id="statBest">—</strong></div>
         <div class="stat"><label>Coverage</label><strong id="statCover">0/37</strong></div>
         <div class="outcomes">
@@ -531,8 +623,8 @@
 
       <h3>How a round works</h3>
       <ol>
-        <li><strong>Waiting for host</strong> — the first player seated is the host. Once two or more players are seated, the host presses <em>Start Match</em>.</li>
-        <li><strong>Betting open (30 s)</strong> — pick a chip and click spots on the felt. When every player presses <em>Lock Bets</em>, betting closes immediately. The host can also close bets early.</li>
+        <li><strong>Waiting for host</strong> — the first player seated is the host (a player on localhost always takes over hosting). Once two or more players are seated, the host presses <em>Start Match</em>.</li>
+        <li><strong>Betting open (20 s)</strong> — pick a chip and click spots on the felt. When every player who still has money presses <em>Lock Bets</em>, betting closes immediately — players at $0 are never waited for. The host can also close bets early.</li>
         <li><strong>Spinning</strong> — the server draws the winning pocket with cryptographic randomness and the wheel spins for everyone at the same time.</li>
         <li><strong>Payout</strong> — winning chips stay on the felt and are paid; losing chips are swept off. Bankrolls update.</li>
         <li><strong>Round summary</strong> — a 5-second recap, then betting reopens.</li>
@@ -563,12 +655,28 @@
         <li>Aim between numbers to place inside bets: hover a line for a split, an intersection for a corner, the bottom edge for a street or six line. The highlighted numbers show exactly what a spot covers.</li>
         <li>Each player's chips carry their colour and badge. When several players share a spot, the chips cluster — hover to see who wagered what.</li>
         <li>Locked bets can't be changed. Unlock to edit them while the timer is still running.</li>
-        <li>If you drop out, your seat is held for 45 seconds — reload the page to reclaim it. If every bankroll empties, the host can start a fresh match.</li>
+        <li>If you drop out, your seat is held for 10 seconds — reload the page to reclaim it. If every bankroll empties, the host can start a fresh match.</li>
+      </ul>
+
+      <h3>Minimum bet &amp; strikes</h3>
+      <ul>
+        <li>Your <strong>total</strong> stake each round must be at least <strong>$5</strong> — for example $1 on five spots, or one $5 chip. If you have less than $5, you must bet everything you have.</li>
+        <li>A stake below the minimum doesn't count: it is returned when betting closes, and you get a strike. Not betting at all is also a strike.</li>
+        <li><strong>5 strikes in a match</strong>, or <strong>3 in a row</strong>, freezes your whole bankroll at $0. Only the host on localhost can give it back.</li>
+        <li>Players at $0 sit out without strikes. Players who join mid-round are exempt that round.</li>
+      </ul>
+
+      <h3>Host, vote-kick &amp; rejoining</h3>
+      <ul>
+        <li>A <strong>gold crown</strong> marks a host playing on localhost. Only that host can remove players, restore frozen bankrolls, approve rejoin requests and restart the game. A host elsewhere (<strong>silver crown</strong>) can only start the match and close bets.</li>
+        <li>Click any player's badge to <strong>vote to kick</strong> them. A kick needs more than half of the other players and at least 2 votes, so it requires 3+ players. Votes expire after 60 seconds, and the localhost host can't be vote-kicked.</li>
+        <li>Each network gets one seat. If you leave (or get removed), rejoining from the same network within 10 minutes needs the localhost host's approval — and you come back with the balance you left with.</li>
       </ul>
 
       <h3>Controls</h3>
       <div class="keys">
         <div><kbd class="k">Click</kbd>Place selected chip</div>
+        <div><kbd class="k">Click badge</kbd>Vote-kick / host actions</div>
         <div><kbd class="k">Right-click</kbd>Remove your bet from a spot</div>
         <div><kbd class="k">1</kbd>–<kbd class="k">5</kbd>Select $1 … $100 chip</div>
         <div><kbd class="k">Ctrl Z</kbd>Undo last chip</div>
